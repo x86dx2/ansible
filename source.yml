@@ -1,0 +1,275 @@
+---
+  - name: Provision Fresh Manjaro
+    hosts: localhost
+    connection: local
+    vars:
+      user:
+        pass : 1a2b3c45
+        newUsername: mar
+    roles:
+        - kewlfft.aur
+    tasks:
+      - name: Installing initial packages
+        become: yes
+        pacman:
+          name:
+            - yay
+            - xorg-mkfontdir
+            - docker
+            - base-devel
+
+      - name: lazy installation of pacman packages
+        become: yes
+        pacman:
+          name:
+            - xorg-mkfontdir
+            - networkmanager
+            - xwallpaper
+            - gnome-keyring
+            - neovim
+            - compton
+            - sudo
+            - git
+            - dmenu
+            - freetype2
+            - libx11
+            - libxft
+            - libxinerama
+            - ttf-linux-libertine
+            - libxext
+              #- xorg-fonts-misc
+              #- xorg
+            - ranger
+            - sxhkd
+            - xorg-xinit
+            - tree
+            - bash-completion
+            - chromium
+            - qutebrowser
+            - firefox
+            - mpv
+            - mpd
+            - unrar
+            - unzip
+            - newsboat
+            - htop
+            - mpc
+            - openssh
+            - zsh
+            - nextcloud-client
+            - unclutter
+            - seahorse
+            - arandr
+            - zathura
+            - mupdf
+            - tmux
+            - dunst
+            - fzf
+            - highlight
+            - w3m
+            - chafa
+            - atool
+            - mediainfo
+            - sxiv
+            - youtube-dl
+            - redshift
+            - clipmenu
+            - emacs
+            - noto-fonts
+            - ansible
+            - pass
+            - zathura-pdf-mupdf
+            - pandoc
+            - hunspell-en_US
+            - ttf-joypixels
+            - xorg-xsetroot
+            - pdfjs
+            - noto-fonts-emoji
+            - scrot
+            - odt2txt
+            - xdotool
+          state: present
+
+      - name: Installing pip packages
+        async: 100
+        poll: 0
+        pip:
+          name:
+            - pdftotext
+            - tldextract
+
+      - name: Add mar user to the sudoers
+        become: yes
+        copy:
+          dest: "/etc/sudoers.d/{{ user.newUsername }}"
+          content: "{{ user.newUsername }}  ALL=(ALL)  ALL"
+
+      - name: add sudo privlages
+        become: yes
+        lineinfile:
+          path: /etc/sudoers.d/11-install-aur_builder
+          line: 'aur_builder ALL=(ALL) NOPASSWD: /usr/bin/pacman'
+          create: yes
+          validate: 'visudo -cf %s'
+
+      - name: install packages from aur
+        async: 1200
+        poll: 0
+        become: yes
+        become_user: mar
+        ignore_errors: yes
+        aur:
+          use: yay
+          name:
+            - lf-bin
+            - font-symbola
+            - zsh-fast-syntax-highlighting
+            - hunspell-nb
+            - ttf-iosevka
+            - starship-bin
+          state: present
+
+      - name: Deploy SSH Key
+        become: yes
+        authorized_key:
+          user: "{{ user.newUsername }}"
+          state: present
+          key: https://github.com/marnyg.keys
+
+      - name: clone dwm
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        ignore_errors: yes
+        git:
+          force: yes
+          repo: "{{item.url}}"
+          dest: "~/.local/src/{{item.folder}}"
+        loop:
+            - { url: "https://github.com/marnyg/dwm2.git", folder: "dwm"}
+            - { url: "https://github.com/marnyg/st2.git", folder: "st"}
+            - { url: "https://github.com/marnyg/dotfilesArch.git", folder: "dotfilesArch"}
+
+      - name: Clone pass repo
+        become_user: "{{ user.newUsername }}"
+        git:
+          repo: git@github.com:marnyg/pass.git
+          dest: ~/.local/share/password-store
+          accept_hostkey: yes
+        ignore_errors: yes
+
+      - name: make dwm src from git
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        make:
+          chdir: ~/.local/src/dwm/
+
+      - name: install dwm src from git
+        become: yes
+        make:
+          chdir: "/home/{{ user.newUsername }}/.local/src/dwm/"
+          target: install
+
+      - name: install st src from git
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        make:
+          chdir: ~/.local/src/st/
+
+      - name: install st src from git
+        become: yes
+        make:
+          chdir: "/home/{{ user.newUsername }}/.local/src/st/"
+          target: install
+
+      - name: run dotfiles init script
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        command:
+          chdir: "/home/{{ user.newUsername }}/.local/src/dotfilesArch/"
+          cmd: ./initScript
+
+      - name: fix problem with lf not reading config if it is a symlink
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        command:
+          chdir: "/home/{{ user.newUsername }}/.config/lf"
+          cmd: cp ./scope ./scope1
+
+      - name: run PlugInstall in nvim
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        ignore_errors: yes
+        command:
+          cmd: nvim +PlugInstall +qall --headless
+
+          #      - name: set up pam to start gnome keyring at login
+          #        become: yes
+          #        pamd:
+          #          name: login
+          #          type: auth
+          #          control: include
+          #          module_path: system-local-login
+          #          new_type: auth
+          #          new_control: optional
+          #          new_module_path: pam_gnome_keyring.so
+          #          state: after
+          #
+          #      - name: set up pam to start gnome keyring at login
+          #        become: yes
+          #        pamd:
+          #          name: login
+          #          type: session
+          #          control: include
+          #          module_path: system-local-login
+          #          new_type: session
+          #          new_control: optional
+          #          new_module_path: pam_gnome_keyring.so
+          #          state: after
+          #          module_arguments: auto_start
+
+      - name: install ohmyzsh
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        git:
+          repo: https://github.com/ohmyzsh/ohmyzsh
+          dest: ~/.config/oh-my-zsh
+
+      - name: Clean artifact path
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        file:
+          state: absent
+          path: "{{item}}"
+        loop:
+            - ~/Desktop
+            - ~/Documents
+            - ~/Music
+            - ~/Pictures
+            - ~/Templates
+            - ~/Videos
+            - ~/Public
+
+      - name: Enable service docker, and not touch the state
+        become: yes
+        service:
+          name: docker.service
+          state: started
+          enabled: yes
+
+      - name: set qutebrower as default browser
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        command: "xdg-mime default org.qutebrowser.qutebrowser.desktop x-scheme-handler/http"
+
+      - name: set qutebrower as default browser
+        become: yes
+        become_user: "{{ user.newUsername }}"
+        command: "xdg-mime default org.qutebrowser.qutebrowser.desktop x-scheme-handler/https"
+              #      - name: remove user named devops
+              #        become: yes
+              #        user:
+              #          name: devops
+              #          password: "{{ lookup('env','test') }}"
+              #          state: absent
+              #          remove: yes
+              #        tags: r
